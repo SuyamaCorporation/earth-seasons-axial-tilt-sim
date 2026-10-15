@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Earth Seasons Axial Tilt Simulator</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen p-4">
+<div class="max-w-3xl mx-auto">
+  <h1 class="text-2xl font-bold text-center mb-2 text-blue-400">Earth Seasons & Axial Tilt Simulator</h1>
+  <p class="text-center text-gray-400 text-sm mb-6">Explore how Earth's 23.5° axial tilt creates seasons</p>
+
+  <div class="mb-6">
+    <label for="angle" class="block text-sm font-medium text-gray-300 mb-2">
+      Orbital Position: <span id="angleVal" class="text-blue-300 font-bold">0°</span>
+      <span id="seasonLabel" class="ml-3 text-yellow-300 font-semibold"></span>
+    </label>
+    <input type="range" id="angle" min="0" max="360" value="0" class="w-full accent-blue-500" aria-label="Orbital position in degrees">
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+    <div class="bg-gray-800 rounded p-4">
+      <canvas id="orbitCanvas" width="300" height="300" aria-label="Earth orbit diagram"></canvas>
+    </div>
+    <div class="bg-gray-800 rounded p-4">
+      <div class="grid grid-cols-2 gap-3 text-sm mb-4">
+        <div class="bg-gray-700 rounded p-3">
+          <div class="text-yellow-400 font-semibold text-xs mb-1">NORTHERN HEMISPHERE</div>
+          <div>Daylight: <span id="nhDay" class="text-blue-300 font-bold">12h</span></div>
+          <div>Sun Altitude: <span id="nhAlt" class="text-orange-300 font-bold">-</span></div>
+          <div id="nhSeason" class="mt-1 text-xs text-gray-400"></div>
+        </div>
+        <div class="bg-gray-700 rounded p-3">
+          <div class="text-blue-400 font-semibold text-xs mb-1">SOUTHERN HEMISPHERE</div>
+          <div>Daylight: <span id="shDay" class="text-blue-300 font-bold">12h</span></div>
+          <div>Sun Altitude: <span id="shAlt" class="text-orange-300 font-bold">-</span></div>
+          <div id="shSeason" class="mt-1 text-xs text-gray-400"></div>
+        </div>
+      </div>
+      <canvas id="chartCanvas" height="160" aria-label="Daylight hours bar chart"></canvas>
+    </div>
+  </div>
+
+  <div class="bg-gray-800 rounded p-4 text-sm">
+    <h2 class="text-purple-400 font-semibold mb-2">Key Facts</h2>
+    <ul class="text-gray-300 space-y-1 text-xs list-disc list-inside">
+      <li>Earth's axial tilt: <strong>23.5°</strong> from orbital plane</li>
+      <li>Summer solstice (NH): ~June 21 — longest day</li>
+      <li>Winter solstice (NH): ~Dec 21 — shortest day</li>
+      <li>Equinoxes (Mar/Sep): equal day and night worldwide</li>
+      <li>Seasons are caused by <strong>axial tilt</strong>, not orbital distance</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+const TILT = 23.5 * Math.PI / 180;
+
+let chart = null;
+
+function calcDaylight(lat, declination) {
+  const latR = lat * Math.PI / 180;
+  const cosHA = -Math.tan(latR) * Math.tan(declination);
+  if (cosHA > 1) return 0;
+  if (cosHA < -1) return 24;
+  const ha = Math.acos(cosHA);
+  return (2 * ha * 180 / Math.PI) / 15;
+}
+
+function calcSunAlt(lat, declination) {
+  const latR = lat * Math.PI / 180;
+  const alt = Math.PI/2 - Math.abs(latR - declination);
+  return Math.max(0, alt * 180 / Math.PI);
+}
+
+const seasons = [
+  { nh: 'Spring', sh: 'Autumn', label: 'Spring Equinox', range: [355, 15] },
+  { nh: 'Summer', sh: 'Winter', label: 'Summer Solstice (NH)', range: [80, 100] },
+  { nh: 'Autumn', sh: 'Spring', label: 'Autumn Equinox', range: [170, 190] },
+  { nh: 'Winter', sh: 'Summer', label: 'Winter Solstice (NH)', range: [260, 280] },
+];
+
+function getSeason(angle) {
+  if (angle >= 355 || angle < 15) return { nh: 'Spring Equinox', sh: 'Autumn Equinox' };
+  if (angle >= 80 && angle < 100) return { nh: 'Summer Solstice', sh: 'Winter Solstice' };
+  if (angle >= 170 && angle < 190) return { nh: 'Autumn Equinox', sh: 'Spring Equinox' };
+  if (angle >= 260 && angle < 280) return { nh: 'Winter Solstice', sh: 'Summer Solstice' };
+  if (angle >= 15 && angle < 80) return { nh: 'Spring', sh: 'Autumn' };
+  if (angle >= 100 && angle < 170) return { nh: 'Summer', sh: 'Winter' };
+  if (angle >= 190 && angle < 260) return { nh: 'Autumn', sh: 'Spring' };
+  return { nh: 'Winter', sh: 'Summer' };
+}
+
+function drawOrbit(angle) {
+  const oc = document.getElementById('orbitCanvas');
+  const octx = oc.getContext('2d');
+  const W = oc.width, H = oc.height;
+  const cx = W/2, cy = H/2;
+  octx.clearRect(0, 0, W, H);
+
+  // Sun
+  octx.fillStyle = '#fbbf24';
+  octx.beginPath();
+  octx.arc(cx, cy, 20, 0, Math.PI*2);
+  octx.fill();
+  octx.fillStyle = '#fef3c7';
+  octx.font = '10px sans-serif';
+  octx.textAlign = 'center';
+  octx.fillText('Sun', cx, cy + 35);
+
+  // Orbit
+  octx.strokeStyle = 'rgba(255,255,255,0.2)';
+  octx.lineWidth = 1;
+  octx.beginPath();
+  octx.ellipse(cx, cy, 110, 90, 0, 0, Math.PI*2);
+  octx.stroke();
+
+  // Earth position
+  const rad = angle * Math.PI / 180;
+  const ex = cx + Math.cos(rad) * 110;
+  const ey = cy + Math.sin(rad) * 90;
+
+  // Earth
+  octx.fillStyle = '#3b82f6';
+  octx.beginPath();
+  octx.arc(ex, ey, 12, 0, Math.PI*2);
+  octx.fill();
+
+  // Axial tilt indicator
+  const tiltAngle = rad + Math.PI/2 + TILT;
+  octx.strokeStyle = '#ef4444';
+  octx.lineWidth = 2;
+  octx.beginPath();
+  octx.moveTo(ex + Math.cos(tiltAngle)*16, ey + Math.sin(tiltAngle)*16);
+  octx.lineTo(ex - Math.cos(tiltAngle)*16, ey - Math.sin(tiltAngle)*16);
+  octx.stroke();
+
+  // Labels
+  octx.fillStyle = '#9ca3af';
+  octx.font = '9px sans-serif';
+  octx.fillText('Mar', cx + 115, cy - 90);
+  octx.fillText('Jun', cx + 115, cy + 5);
+  octx.fillText('Sep', cx - 125, cy - 90);
+  octx.fillText('Dec', cx - 125, cy + 5);
+  octx.fillStyle = '#60a5fa';
+  octx.font = '10px sans-serif';
+  octx.fillText('Earth', ex, ey - 18);
+}
+
+function update() {
+  const angle = parseInt(document.getElementById('angle').value);
+  document.getElementById('angleVal').textContent = angle + '°';
+
+  // Declination based on position (0° = March equinox)
+  const dec = Math.sin((angle - 90) * Math.PI / 180) * TILT;
+  const nhDay = calcDaylight(45, dec);
+  const shDay = calcDaylight(-45, dec);
+  const nhAlt = calcSunAlt(45, dec);
+  const shAlt = calcSunAlt(-45, dec);
+
+  document.getElementById('nhDay').textContent = nhDay.toFixed(1) + 'h';
+  document.getElementById('shDay').textContent = shDay.toFixed(1) + 'h';
+  document.getElementById('nhAlt').textContent = nhAlt.toFixed(1) + '°';
+  document.getElementById('shAlt').textContent = shAlt.toFixed(1) + '°';
+
+  const s = getSeason(angle);
+  document.getElementById('nhSeason').textContent = s.nh;
+  document.getElementById('shSeason').textContent = s.sh;
+  document.getElementById('seasonLabel').textContent = s.nh + ' / ' + s.sh;
+
+  drawOrbit(angle);
+  updateChart(nhDay, shDay);
+}
+
+function updateChart(nhDay, shDay) {
+  const ctx2 = document.getElementById('chartCanvas').getContext('2d');
+  if (chart) chart.destroy();
+  chart = new Chart(ctx2, {
+    type: 'bar',
+    data: {
+      labels: ['N.Hem (45°N)', 'S.Hem (45°S)'],
+      datasets: [{
+        label: 'Daylight Hours',
+        data: [nhDay, shDay],
+        backgroundColor: ['#f59e0b', '#3b82f6'],
+      }]
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { min: 0, max: 24, ticks: { color: '#9ca3af', stepSize: 6 }, grid: { color: '#374151' } },
+        x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }
+      }
+    }
+  });
+}
+
+document.getElementById('angle').addEventListener('input', update);
+update();
+</script>
+</body>
+</html>
